@@ -1,0 +1,160 @@
+.app {
+  width: min(90%, 600px);
+  margin: 0 auto;
+  padding: 30px 20px;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.header-area {
+  margin-bottom: 30px;
+}
+
+h1 {
+  margin: 0 0 15px;
+  font-size: 28px;
+}
+
+.volume-area {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.volume-area input[type="range"] {
+  flex: 1;
+  max-width: 180px;
+}
+
+.volume-number {
+  width: 55px;
+  padding: 5px;
+  box-sizing: border-box;
+}
+
+.input-area {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 25px;
+}
+
+.input-area input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px;
+  font-size: 16px;
+  box-sizing: border-box;
+}
+
+.input-area button {
+  padding: 12px 20px;
+  cursor: pointer;
+}
+
+.id-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.id-item {
+  display: flex;
+  gap: 10px;
+}
+
+.id-button {
+  flex: 1;
+  min-width: 0;
+  padding: 15px;
+  font-size: 20px;
+  background: white;
+  border: 1px solid #ccc;
+  cursor: pointer;
+}
+
+.id-button.new {
+  color: black;
+  background: red;
+}
+
+.id-button.old {
+  color: black;
+  background: blue;
+}
+
+.id-button.copied {
+  color: white;
+  background: #666;
+}
+
+.copy-button {
+  padding: 0 15px;
+  cursor: pointer;
+}
+
+.delete-button {
+  padding: 0 15px;
+  cursor: pointer;
+}
+
+/* 画面が狭い場合 */
+@media (max-width: 500px) {
+  .app {
+    width: 100%;
+    padding: 25px 15px;
+  }
+
+  h1 {
+    font-size: 26px;
+  }
+
+  .volume-area {
+    justify-content: center;
+  }
+
+  .volume-area input[type="range"] {
+    max-width: none;
+  }
+
+  .input-area button {
+    padding: 12px 15px;
+  }
+
+  .id-item {
+    gap: 5px;
+  }
+
+  .copy-button,
+  .delete-button {
+    padding: 0 10px;
+  }
+}
+
+.header-area {
+  position: relative;
+}
+
+.reset-area {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.reset-button {
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.reset-note {
+  font-size: 12px;
+  white-space: nowrap;
+}
