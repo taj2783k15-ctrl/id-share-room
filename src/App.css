@@ -158,3 +158,13 @@ h1 {
   font-size: 12px;
   white-space: nowrap;
 }
+
+
+/* ID一覧のボタン幅を揃える */
+.delete-button {
+  flex-shrink: 0;
+}
+
+.copy-button {
+  flex-shrink: 0;
+}
