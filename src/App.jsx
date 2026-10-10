@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from 'react'
 import {
   ref,
@@ -9,18 +10,25 @@ import { database } from './firebase'
 import './App.css'
 
 const STORAGE_KEY = 'id-share-room-ids'
+const CLIENT_KEY = 'id-share-room-client-id'
 
 function App() {
   const [inputId, setInputId] = useState('')
+  const [clientId] = useState(() => {
+    let id = sessionStorage.getItem(CLIENT_KEY)
+
+    if (!id) {
+      id = crypto.randomUUID()
+      sessionStorage.setItem(CLIENT_KEY, id)
+    }
+
+    return id
+  })
+
   const [ids, setIds] = useState(() => {
     try {
       const savedIds = sessionStorage.getItem(STORAGE_KEY)
-
-      if (!savedIds) {
-        return []
-      }
-
-      return JSON.parse(savedIds)
+      return savedIds ? JSON.parse(savedIds) : []
     } catch (error) {
       console.log('履歴の読み込みに失敗しました')
       return []
@@ -31,66 +39,68 @@ function App() {
 
   // Reactの履歴が変わったらsessionStorageにも保存
   useEffect(() => {
-    sessionStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(ids)
-    )
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(ids))
   }, [ids])
 
   // ポロン♪という通知音
   const playNotificationSound = () => {
-    const audioContext = new AudioContext()
+    try {
+      const audioContext = new AudioContext()
+      const oscillator = audioContext.createOscillator()
+      const gainNode = audioContext.createGain()
 
-    const oscillator = audioContext.createOscillator()
-    const gainNode = audioContext.createGain()
+      oscillator.type = 'sine'
 
-    oscillator.type = 'sine'
+      oscillator.frequency.setValueAtTime(
+        660,
+        audioContext.currentTime
+      )
 
-    oscillator.frequency.setValueAtTime(
-      660,
-      audioContext.currentTime
-    )
+      oscillator.frequency.setValueAtTime(
+        880,
+        audioContext.currentTime + 0.12
+      )
 
-    oscillator.frequency.setValueAtTime(
-      880,
-      audioContext.currentTime + 0.12
-    )
+      gainNode.gain.setValueAtTime(
+        volume / 100 * 0.2,
+        audioContext.currentTime
+      )
 
-    gainNode.gain.setValueAtTime(
-      volume / 100 * 0.2,
-      audioContext.currentTime
-    )
+      gainNode.gain.exponentialRampToValueAtTime(
+        0.001,
+        audioContext.currentTime + 0.5
+      )
 
-    gainNode.gain.exponentialRampToValueAtTime(
-      0.001,
-      audioContext.currentTime + 0.5
-    )
+      oscillator.connect(gainNode)
+      gainNode.connect(audioContext.destination)
 
-    oscillator.connect(gainNode)
-    gainNode.connect(audioContext.destination)
+      oscillator.start()
+      oscillator.stop(audioContext.currentTime + 0.5)
 
-    oscillator.start()
-    oscillator.stop(audioContext.currentTime + 0.5)
+      oscillator.onended = () => {
+        audioContext.close()
+      }
+    } catch (error) {
+      console.log('通知音の再生に失敗しました')
+    }
   }
 
   // FirebaseのID一覧を監視
   useEffect(() => {
     const idsRef = ref(database, 'ids')
 
-    // 新しいIDを受信したとき
     const unsubscribeAdded = onChildAdded(idsRef, (snapshot) => {
       const data = snapshot.val()
 
       if (!data) return
 
+      const isSelf = data.sender === clientId
+
       const newItem = {
         id: snapshot.key,
         value: data.value,
-        status: 'new',
+        status: isSelf ? 'copied' : 'new',
       }
-
-      // IDを受信したときに通知音
-      playNotificationSound()
 
       setIds((prevIds) => {
         // すでに履歴にあるIDなら追加しない
@@ -98,46 +108,44 @@ function App() {
           return prevIds
         }
 
-        // すでに5件ある場合
+        // 5件を超える場合は一番古いIDを削除
         if (prevIds.length >= 5) {
           const oldestItem = prevIds[prevIds.length - 1]
 
-          // Firebaseから古いIDを削除
-          remove(
-            ref(database, `ids/${oldestItem.id}`)
-          )
+          remove(ref(database, `ids/${oldestItem.id}`))
         }
 
-        // 最新のIDを先頭に追加
-        return [
-          newItem,
-          ...prevIds,
-        ].slice(0, 5)
+        return [newItem, ...prevIds].slice(0, 5)
       })
 
-      // 3秒後に赤 → 青
-      setTimeout(() => {
-        setIds((prevIds) =>
-          prevIds.map((item) =>
-            item.id === newItem.id && item.status === 'new'
-              ? { ...item, status: 'old' }
-              : item
-          )
-        )
-      }, 3000)
+      // 他の人から受信したIDだけ通知音を鳴らす
+      if (!isSelf) {
+        playNotificationSound()
+      }
 
-      // 受信して5秒後にFirebaseからだけ削除
+      // 3秒後に赤 → 青
+      if (!isSelf) {
+        setTimeout(() => {
+          setIds((prevIds) =>
+            prevIds.map((item) =>
+              item.id === newItem.id && item.status === 'new'
+                ? { ...item, status: 'old' }
+                : item
+            )
+          )
+        }, 3000)
+      }
+
+      // 5秒後にFirebaseからだけ削除
       setTimeout(() => {
-        remove(
-          ref(database, `ids/${newItem.id}`)
-        )
+        remove(ref(database, `ids/${newItem.id}`))
       }, 5000)
     })
 
     return () => {
       unsubscribeAdded()
     }
-  }, [])
+  }, [clientId, volume])
 
   // クリップボードから貼り付け
   const pasteFromClipboard = async () => {
@@ -145,7 +153,7 @@ function App() {
       const text = await navigator.clipboard.readText()
 
       if (text) {
-        setInputId(text.slice(0, 10))
+        setInputId(text.slice(0, 8))
       }
     } catch (error) {
       console.log('クリップボードの読み取りに失敗しました')
@@ -154,17 +162,21 @@ function App() {
 
   // IDを追加する
   const handleSubmit = async () => {
-    const newId = inputId.trim()
+    const newId = inputId.trim().slice(0, 8)
 
     if (!newId) return
 
-    // Firebaseに追加
-    await push(ref(database, 'ids'), {
-      value: newId,
-      createdAt: Date.now(),
-    })
+    try {
+      await push(ref(database, 'ids'), {
+        value: newId,
+        createdAt: Date.now(),
+        sender: clientId,
+      })
 
-    setInputId('')
+      setInputId('')
+    } catch (error) {
+      console.log('Firebaseへの送信に失敗しました')
+    }
   }
 
   // 送信ボタンにカーソルをかざしたとき
@@ -199,16 +211,12 @@ function App() {
 
   // 個別削除
   const handleDelete = async (id) => {
-    // Reactから削除
     setIds((prevIds) =>
       prevIds.filter((item) => item.id !== id)
     )
 
-    // Firebaseから削除
     try {
-      await remove(
-        ref(database, `ids/${id}`)
-      )
+      await remove(ref(database, `ids/${id}`))
     } catch (error) {
       console.log('Firebaseからの削除に失敗しました')
     }
@@ -217,13 +225,8 @@ function App() {
   // FirebaseとReactの履歴を全件削除
   const handleDeleteAll = async () => {
     try {
-      // Firebaseから全件削除
       await remove(ref(database, 'ids'))
-
-      // Reactから全件削除
       setIds([])
-
-      // sessionStorageからも全件削除
       sessionStorage.removeItem(STORAGE_KEY)
     } catch (error) {
       console.log('Firebaseの全件削除に失敗しました')
@@ -250,7 +253,6 @@ function App() {
   return (
     <div className="app">
       <div className="header-area">
-
         <div className="reset-area">
           <button
             className="reset-button"
@@ -301,9 +303,9 @@ function App() {
         <input
           type="text"
           placeholder="IDを入力"
-          maxLength={10}
+          maxLength={8}
           value={inputId}
-          onChange={(e) => setInputId(e.target.value)}
+          onChange={(e) => setInputId(e.target.value.slice(0, 8))}
           onFocus={pasteFromClipboard}
           onMouseEnter={pasteFromClipboard}
           onKeyDown={(e) => {
@@ -324,6 +326,15 @@ function App() {
       <div className="id-list">
         {ids.map((item) => (
           <div className="id-item" key={item.id}>
+            {item.status !== 'new' && (
+              <button
+                className="delete-button"
+                onClick={() => handleDelete(item.id)}
+              >
+                削除
+              </button>
+            )}
+
             <button
               className={`id-button ${item.status}`}
               onClick={() => {
@@ -347,13 +358,6 @@ function App() {
               }
             >
               コピー
-            </button>
-
-            <button
-              className="delete-button"
-              onClick={() => handleDelete(item.id)}
-            >
-              削除
             </button>
           </div>
         ))}
