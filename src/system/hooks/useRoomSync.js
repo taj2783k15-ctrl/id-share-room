@@ -29,7 +29,7 @@ import { playNotificationSound } from '../../shared/notificationSound.js'
 //
 // volume : 受信時の通知音の音量（0～200）
 // onEnd  : ルームから外れたときに呼ぶ（開いているダイアログを閉じるなど）
-export function useRoomSync({ session, volume, onEnd }) {
+export function useRoomSync({ session, volume, onEnd, onRemoteId }) {
   const { passphrase, participantId } = session
 
   const [savedHistory] = useState(() =>
@@ -138,6 +138,7 @@ export function useRoomSync({ session, volume, onEnd }) {
     // 他の人から受信したIDだけ通知音を鳴らす
     if (!isSelf) {
       playNotificationSound(volume)
+      onRemoteId?.(data.value, data.participantId)
     }
 
     // Firebase上の共有IDデータは3秒後に削除（画面の履歴は残す）

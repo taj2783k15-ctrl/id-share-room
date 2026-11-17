@@ -191,3 +191,45 @@
   font-size: 16px;
 }
 
+.room-extension-bridge {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid #c8c8c8;
+  border-radius: 6px;
+  background: #f1f1f1;
+}
+
+.room-extension-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.room-extension-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.room-extension-controls select {
+  min-width: 0;
+  flex: 1;
+}
+
+.room-extension-status {
+  min-height: 1.3em;
+  font-size: 0.9em;
+}
+
+@media (max-width: 480px) {
+  .room-extension-controls {
+    flex-wrap: wrap;
+  }
+
+  .room-extension-controls select {
+    flex-basis: 100%;
+  }
+}
+

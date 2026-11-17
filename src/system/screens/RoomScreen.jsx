@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import {
   clearSharedIds,
   kickParticipant,
@@ -13,6 +13,7 @@ import { isSameId } from '../lib/validation.js'
 import { useRoomSync } from '../hooks/useRoomSync.js'
 import { useIdSender } from '../hooks/useIdSender.js'
 import { useShortcutKeys } from '../hooks/useShortcutKeys.js'
+import { onExtensionEvent, requestExtension } from '../lib/browserBridge.js'
 import RoomHeader from '../components/RoomHeader.jsx'
 import ParticipantColumn, { EmptyColumn } from '../components/ParticipantColumn.jsx'
 import IdSendForm from '../components/IdSendForm.jsx'
@@ -27,6 +28,31 @@ function RoomScreen({ session, onExit }) {
   const { passphrase, nickname, participantId } = session
 
   const [volume, setVolume] = useState(100)
+  const bridgeEnabledKey = `kosenjo-id-share-enabled:${passphrase}:${participantId}`
+  const targetKey = `kosenjo-id-share-target:${passphrase}:${participantId}`
+  const [bridgeEnabled, setBridgeEnabled] = useState(() => sessionStorage.getItem(bridgeEnabledKey) === 'true')
+  const [targetTabId, setTargetTabId] = useState(() => sessionStorage.getItem(targetKey) || '')
+  const [gameTabs, setGameTabs] = useState([])
+  const [bridgeStatus, setBridgeStatus] = useState('拡張機能の連携はOFFです')
+  const remoteIdQueue = useRef(Promise.resolve())
+
+  const handleRemoteId = (value) => {
+    if (!bridgeEnabled || !/^[A-Za-z0-9]{8}$/.test(value)) return
+    if (!targetTabId) {
+      setBridgeStatus('受信IDの入力先GBFタブを選択してください')
+      return
+    }
+    remoteIdQueue.current = remoteIdQueue.current
+      .catch(() => {})
+      .then(async () => {
+        const result = await requestExtension('send-to-game', { tabId: Number(targetTabId), code: value })
+        if (result.ok) {
+          setBridgeStatus(result.status === 'id-filled' ? '受信IDを指定タブへ入力しました' : '指定タブをID入力画面へ移動しています')
+        } else {
+          setBridgeStatus(`指定タブへ送れませんでした: ${result.reason || '不明な理由'}`)
+        }
+      })
+  }
   // 確認ダイアログ { message, confirmLabel, onConfirm }
   const [dialog, setDialog] = useState(null)
 
@@ -40,7 +66,7 @@ function RoomScreen({ session, onExit }) {
     setLastId,
     endedMessage,
     endedRef,
-  } = useRoomSync({ session, volume, onEnd: () => setDialog(null) })
+  } = useRoomSync({ session, volume, onEnd: () => setDialog(null), onRemoteId: handleRemoteId })
 
   const amHost = room?.hostId === participantId
 
@@ -69,6 +95,53 @@ function RoomScreen({ session, onExit }) {
     isDuplicate,
     onSent: setLastId,
   })
+
+  const refreshGameTabs = useCallback(async () => {
+    const result = await requestExtension('list-game-tabs')
+    if (!result.ok) {
+      setBridgeStatus(result.reason === 'extension-timeout' ? '拡張機能に接続できません' : 'ゲームタブ一覧を取得できません')
+      return
+    }
+    const tabs = result.tabs || []
+    setGameTabs(tabs)
+    if (targetTabId && !tabs.some((tab) => String(tab.tabId) === String(targetTabId))) {
+      setTargetTabId('')
+      sessionStorage.removeItem(targetKey)
+    }
+    setBridgeStatus(tabs.length ? 'ゲームタブを選択できます' : 'GBFのタブを開いてください')
+  }, [targetTabId, targetKey])
+
+  const handleExtensionEvent = useEffectEvent(async (message) => {
+    if (message.type === 'captured-id') {
+      if (!bridgeEnabled) return
+      const accepted = await submitId(message.code, { auto: true })
+      setBridgeStatus(accepted ? '自発救援IDを共有しました' : 'ID共有を確認してください（重複・未送信の可能性）')
+    } else if (message.type === 'join-route-status') {
+      setBridgeStatus(message.status === 'id-filled'
+        ? 'ID入力欄にセットしました（参加確定はゲーム画面で確認）'
+        : '指定タブが救援サポーター画面へ進みました')
+    }
+  })
+
+  useEffect(() => {
+    const timer = setTimeout(() => refreshGameTabs(), 0)
+    const unsubscribe = onExtensionEvent((message) => handleExtensionEvent(message))
+    return () => {
+      clearTimeout(timer)
+      unsubscribe()
+    }
+  }, [refreshGameTabs])
+
+  const setBridgeEnabledAndStore = (enabled) => {
+    sessionStorage.setItem(bridgeEnabledKey, String(enabled))
+    setBridgeEnabled(enabled)
+    setBridgeStatus(enabled ? '共有連携ON：送信・受信を有効化しました' : '拡張機能の連携はOFFです')
+  }
+
+  const setTargetAndStore = (value) => {
+    sessionStorage.setItem(targetKey, value)
+    setTargetTabId(value)
+  }
 
   // クリップボードへコピー（コピー済みとして灰色にし、直前のIDに入れる）
   const copyEntry = async (ownerId, entry) => {
@@ -228,6 +301,33 @@ function RoomScreen({ session, onExit }) {
         onPasteFromClipboard={pasteFromClipboard}
         onSubmit={() => submitId(inputId)}
       />
+
+      <section className="room-extension-bridge" aria-label="古戦場システム連携">
+        <label className="room-extension-toggle">
+          <input
+            type="checkbox"
+            checked={bridgeEnabled}
+            onChange={(event) => setBridgeEnabledAndStore(event.target.checked)}
+          />
+          古戦場 ID共有を有効にする
+        </label>
+        <div className="room-extension-controls">
+          <select
+            aria-label="IDを入力するGBFタブ"
+            value={targetTabId}
+            onChange={(event) => setTargetAndStore(event.target.value)}
+          >
+            <option value="">IDを入力するGBFタブを選択</option>
+            {gameTabs.map((tab) => (
+              <option key={tab.tabId} value={tab.tabId}>
+                {tab.title || 'Granblue Fantasy'} — {tab.hash || '#'} (タブ {tab.tabId})
+              </option>
+            ))}
+          </select>
+          <button className="menu-button" type="button" onClick={refreshGameTabs}>タブ更新</button>
+        </div>
+        <div className="room-extension-status" role="status">{bridgeStatus}</div>
+      </section>
 
       <div className="room-actions">
         <button className="menu-button" onClick={handleClearSharedIds}>
