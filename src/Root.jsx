@@ -1,6 +1,4 @@
 import { useEffect, useState } from 'react'
-import App from './App.jsx'
-import TopMenu from './TopMenu.jsx'
 import SystemMenu from './system/screens/SystemMenu.jsx'
 import CreateRoomScreen from './system/screens/CreateRoomScreen.jsx'
 import JoinRoomScreen from './system/screens/JoinRoomScreen.jsx'
@@ -14,24 +12,19 @@ import {
 } from './system/lib/roomSession.js'
 import './shared/Menu.css'
 
-// 画面の切り替え
-//
-// URLのハッシュと画面の対応（再読み込みやブラウザの戻るボタンでも画面を保てる）
-//   (なし)         トップ画面
-//   #rescue        救援用（App.jsx）
-//   #system        システム用メニュー
+// システム画面専用エントリー。通常の救援ページからは読み込まれない。
+// #system         システム用メニュー
 //   #system/create ルーム作成
 //   #system/join   ルーム参加
 //   #system/room   ルーム内
 const ROUTES = {
-  '#rescue': 'rescue',
   '#system': 'system',
   '#system/create': 'create',
   '#system/join': 'join',
   '#system/room': 'room',
 }
 
-const getScreen = () => ROUTES[window.location.hash] ?? 'top'
+const getScreen = () => ROUTES[window.location.hash] ?? 'system'
 
 const navigate = (hash) => {
   window.location.hash = hash
@@ -85,23 +78,10 @@ function Root() {
   const exitRoom = () => {
     clearRoomSession()
     setRoomSession(null)
-    navigate('')
+    navigate('#system')
   }
 
   switch (screen) {
-    case 'rescue':
-      return (
-        <>
-          <div className="top-nav">
-            <button onClick={() => navigate('')}>
-              ← トップに戻る
-            </button>
-          </div>
-
-          <App />
-        </>
-      )
-
     case 'system':
       return (
         <SystemMenu
@@ -133,7 +113,7 @@ function Root() {
         return (
           <RoomMessageScreen
             message="ルームの情報がありません。"
-            onBack={() => navigate('')}
+            onBack={() => navigate('#system')}
           />
         )
       }
@@ -141,12 +121,7 @@ function Root() {
       return <RoomScreen session={roomSession} onExit={exitRoom} />
 
     default:
-      return (
-        <TopMenu
-          onRescue={() => navigate('#rescue')}
-          onSystem={() => navigate('#system')}
-        />
-      )
+      return <SystemMenu onCreate={() => navigate('#system/create')} onJoin={() => navigate('#system/join')} onBack={() => navigate('#system')} />
   }
 }
 
