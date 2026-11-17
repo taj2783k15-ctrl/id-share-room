@@ -1,0 +1,193 @@
+/* ルーム内画面（システム用） */
+.room-screen {
+  width: min(100%, 960px);
+  margin: 0 auto;
+  padding: 30px 16px 40px;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.room-header h1 {
+  margin-bottom: 8px;
+}
+
+.room-info {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px 16px;
+  margin-bottom: 20px;
+  font-size: 15px;
+}
+
+.role-badge,
+.host-mark {
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+/* 列が画面に収まらない場合は横スクロール */
+.room-columns-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 6px;
+}
+
+/* 狭い画面でも全員分が収まるように、列は画面幅に合わせて縮める */
+.room-columns {
+  display: flex;
+  gap: 4px;
+}
+
+.room-column {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 3px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+/* 自分の列を目立たせる */
+.room-column.self {
+  border: 2px solid #2a7de1;
+  background: rgba(42, 125, 225, 0.08);
+}
+
+.column-heading {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.room-column.self .column-heading {
+  color: #2a7de1;
+}
+
+.column-nickname {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 2px 4px;
+  min-height: 1.4em;
+  font-size: 13px;
+}
+
+.column-nickname .host-mark {
+  padding: 0 4px;
+  font-size: 10px;
+}
+
+.column-ids {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 上が最新、下がひとつ前 */
+.room-id-button {
+  width: 100%;
+  padding: 6px 1px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: clamp(10px, 2.4vw, 16px);
+  line-height: 1.2;
+  word-break: break-all;
+  background: white;
+  color: black;
+  border: 1px solid #999;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.room-id-button.new:hover {
+  background: #eef4fc;
+}
+
+/* コピー済み（救援用と同じ灰色） */
+.room-id-button.copied {
+  color: white;
+  background: #666;
+}
+
+/* 救援用の .volume-area（App.css）を中央寄せにする */
+.volume-area.room-volume {
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.room-id-empty {
+  display: block;
+  padding: 6px 1px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: #999;
+  border: 1px dashed #ccc;
+  border-radius: 4px;
+}
+
+.column-empty {
+  padding: 10px 0;
+  font-size: 12px;
+  color: #999;
+}
+
+.kick-button {
+  margin-top: auto;
+  padding: 3px 0;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* 入力欄の上の「直前のID：」（値がなくても高さを確保してずれを防ぐ）
+   救援用の .last-id と混ざらないように別のクラス名にしている */
+.room-last-id {
+  max-width: 420px;
+  min-height: 1.5em;
+  margin: 16px auto 0;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.room-last-id-value {
+  font-family: ui-monospace, Consolas, monospace;
+  font-weight: bold;
+}
+
+.room-send-area {
+  display: flex;
+  gap: 10px;
+  max-width: 420px;
+  margin: 6px auto 0;
+}
+
+.room-send-area .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.room-send-area .menu-button {
+  width: auto;
+  padding: 12px 20px;
+}
+
+.room-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  max-width: 420px;
+  margin: 16px auto 0;
+}
+
+.room-actions .menu-button {
+  flex: 1 1 120px;
+  font-size: 16px;
+}
+

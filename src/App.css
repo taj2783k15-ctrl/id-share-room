@@ -54,6 +54,22 @@ h1 {
   cursor: pointer;
 }
 
+.status-area {
+  margin: -10px 0 20px;
+  font-size: 15px;
+}
+
+.last-id-value {
+  font-family: ui-monospace, Consolas, monospace;
+  font-weight: bold;
+}
+
+.notice {
+  margin-top: 5px;
+  color: #d00;
+  font-size: 14px;
+}
+
 .id-list {
   display: flex;
   flex-direction: column;

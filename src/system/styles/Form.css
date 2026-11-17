@@ -1,0 +1,42 @@
+/* システム用の入力フォーム（ルーム作成・参加・ID入力欄） */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  text-align: left;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+  box-sizing: border-box;
+}
+
+.form-hint {
+  color: #d00;
+  font-size: 14px;
+}
+
+/* システム用メニューのルーム数・ルーム全削除 */
+.maintenance {
+  margin-top: 36px;
+  padding-top: 16px;
+  border-top: 1px solid #ccc;
+}
+
+.maintenance-count {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.maintenance-message {
+  margin: 10px 0 0;
+  font-size: 14px;
+}

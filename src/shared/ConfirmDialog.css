@@ -1,0 +1,35 @@
+/* 確認ダイアログ */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 10;
+}
+
+.dialog {
+  width: min(100%, 360px);
+  padding: 20px;
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-h);
+  box-sizing: border-box;
+}
+
+.dialog-message {
+  margin: 0 0 16px;
+  text-align: center;
+}
+
+.dialog-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.dialog-buttons .menu-button {
+  flex: 1;
+  font-size: 16px;
+}

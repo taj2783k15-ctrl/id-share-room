@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import {
   ref,
   push,
@@ -11,6 +11,41 @@ import './App.css'
 
 const STORAGE_KEY = 'id-share-room-ids'
 const CLIENT_KEY = 'id-share-room-client-id'
+const LAST_ID_KEY = 'id-share-room-last-id'
+
+const ID_LENGTH = 8
+
+// 入力欄に入れてよい文字列（半角英数字のみ・0～8文字）
+const INPUT_PATTERN = /^[A-Za-z0-9]{0,8}$/
+// 送信してよい文字列（半角英数字のみ・1～8文字）
+const SEND_PATTERN = /^[A-Za-z0-9]{1,8}$/
+// 自動送信の対象（半角英数字のみ・ちょうど8文字）
+const AUTO_SEND_PATTERN = /^[A-Za-z0-9]{8}$/
+
+const isAllowedInput = (text) => INPUT_PATTERN.test(text)
+
+// 大文字・小文字を区別せずに比較する
+const isSameId = (a, b) => a.toLowerCase() === b.toLowerCase()
+
+// テキスト入力中かどうか（ショートカットを無効にする判定）
+const NON_TEXT_INPUT_TYPES = [
+  'range', 'checkbox', 'radio', 'button', 'submit', 'reset', 'color', 'file',
+]
+
+const isTextEntryElement = (element) => {
+  if (!element) return false
+  if (element.isContentEditable) return true
+
+  const tagName = element.tagName
+
+  if (tagName === 'TEXTAREA' || tagName === 'SELECT') return true
+
+  if (tagName === 'INPUT') {
+    return !NON_TEXT_INPUT_TYPES.includes(element.type)
+  }
+
+  return false
+}
 
 function App() {
   const [inputId, setInputId] = useState('')
@@ -37,13 +72,46 @@ function App() {
 
   const [volume, setVolume] = useState(100)
 
+  // 直前にコピーまたは送信したID（1件だけ記憶）
+  const [lastId, setLastId] = useState(
+    () => sessionStorage.getItem(LAST_ID_KEY) ?? ''
+  )
+
+  // クリップボード操作の失敗などをユーザーに知らせるメッセージ
+  const [notice, setNotice] = useState('')
+
+  // 非同期処理の途中でも最新の値を参照するためのref
+  const idsRef = useRef(ids)
+  const lastIdRef = useRef(lastId)
+  const sendingRef = useRef(false)
+  const noticeTimerRef = useRef(null)
+
   // Reactの履歴が変わったらsessionStorageにも保存
   useEffect(() => {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(ids))
+    idsRef.current = ids
   }, [ids])
 
+  useEffect(() => {
+    return () => clearTimeout(noticeTimerRef.current)
+  }, [])
+
+  const showNotice = (message) => {
+    setNotice(message)
+    clearTimeout(noticeTimerRef.current)
+    noticeTimerRef.current = setTimeout(() => setNotice(''), 3000)
+  }
+
+  // 記憶しているIDを更新する（コピー・送信が実行された後にだけ呼ぶ）
+  const rememberId = (value) => {
+    lastIdRef.current = value
+    setLastId(value)
+    sessionStorage.setItem(LAST_ID_KEY, value)
+  }
+
   // ポロン♪という通知音
-  const playNotificationSound = () => {
+  // useEffectEventにすることで、音量を変えてもFirebaseの監視をやり直さない
+  const playNotificationSound = useEffectEvent(() => {
     try {
       const audioContext = new AudioContext()
       const oscillator = audioContext.createOscillator()
@@ -83,7 +151,7 @@ function App() {
     } catch (error) {
       console.log('通知音の再生に失敗しました')
     }
-  }
+  })
 
   // FirebaseのID一覧を監視
   useEffect(() => {
@@ -145,67 +213,94 @@ function App() {
     return () => {
       unsubscribeAdded()
     }
-  }, [clientId, volume])
+  }, [clientId])
 
-  // クリップボードから貼り付け
-  const pasteFromClipboard = async () => {
-    try {
-      const text = await navigator.clipboard.readText()
-
-      if (text) {
-        setInputId(text.slice(0, 8))
-      }
-    } catch (error) {
-      console.log('クリップボードの読み取りに失敗しました')
+  // IDを送信する（自動送信・明示的な送信の共通処理）
+  const submitId = async (value) => {
+    // 入力欄を経由しない場合に備えて、送信直前にも必ず検証する
+    if (!SEND_PATTERN.test(value)) {
+      showNotice('送信できるのは半角英数字8文字以内です')
+      return
     }
-  }
 
-  // IDを追加する
-  const handleSubmit = async () => {
-    const newId = inputId.trim().slice(0, 8)
+    // 送信中に重ねて送信しない
+    if (sendingRef.current) return
 
-    if (!newId) return
+    sendingRef.current = true
 
     try {
       await push(ref(database, 'ids'), {
-        value: newId,
+        value,
         createdAt: Date.now(),
         sender: clientId,
       })
 
-      setInputId('')
+      // 送信が実行された後で記憶を更新する
+      rememberId(value)
+
+      // 送信したIDが入力欄に残っていれば消す
+      setInputId((prev) => (prev === value ? '' : prev))
     } catch (error) {
       console.log('Firebaseへの送信に失敗しました')
+      showNotice('送信に失敗しました')
+    } finally {
+      sendingRef.current = false
     }
   }
 
-  // 送信ボタンにカーソルをかざしたとき
-  const handleSubmitHover = () => {
-    const newId = inputId.trim()
+  // 自動送信の判定
+  const tryAutoSubmit = (value) => {
+    if (!AUTO_SEND_PATTERN.test(value)) return
 
-    if (!newId) return
+    // 表示中の履歴と一致するIDは自動送信しない
+    if (idsRef.current.some((item) => isSameId(item.value, value))) return
 
-    const isDuplicate = ids.some(
-      (item) => item.value === newId
-    )
+    // 更新前の記憶と比較してから送信する（記憶の更新は送信後）
+    if (lastIdRef.current && isSameId(lastIdRef.current, value)) return
 
-    if (!isDuplicate) {
-      handleSubmit()
-    }
+    submitId(value)
   }
 
-  // 送信ボタンをクリックしたとき
-  const handleSubmitClick = () => {
-    const newId = inputId.trim()
+  // ペーストされた文字列で入力欄を置き換える（すべてのペーストの共通処理）
+  const applyPastedText = (text) => {
+    if (!text) return
 
-    if (!newId) return
+    // 不正な文字や9文字以上を含む場合は、入力欄を一切変更しない
+    if (!isAllowedInput(text)) {
+      showNotice('貼り付けできるのは半角英数字8文字以内です')
+      return
+    }
 
-    const isDuplicate = ids.some(
-      (item) => item.value === newId
-    )
+    setInputId(text)
+    tryAutoSubmit(text)
+  }
 
-    if (isDuplicate) {
-      handleSubmit()
+  // クリップボードから貼り付け
+  const pasteFromClipboard = async () => {
+    let text
+
+    try {
+      text = await navigator.clipboard.readText()
+    } catch (error) {
+      console.log('クリップボードの読み取りに失敗しました')
+      showNotice('クリップボードの読み取りに失敗しました')
+      return
+    }
+
+    applyPastedText(text)
+  }
+
+  // 手入力
+  const handleInputChange = (e) => {
+    const value = e.target.value
+
+    // 半角英数字8文字以内でなければ入力欄に反映しない
+    if (!isAllowedInput(value)) return
+
+    setInputId(value)
+
+    if (value.length === ID_LENGTH) {
+      tryAutoSubmit(value)
     }
   }
 
@@ -245,10 +340,82 @@ function App() {
             : item
         )
       )
+
+      rememberId(value)
     } catch (error) {
       console.log('クリップボードへのコピーに失敗しました')
+      showNotice('クリップボードへのコピーに失敗しました')
     }
   }
+
+  // クリップボードへコピーして、自分の画面の履歴から削除（Firebaseは操作しない）
+  const copyAndRemoveFromHistory = async (item) => {
+    try {
+      await navigator.clipboard.writeText(item.value)
+    } catch {
+      console.log('クリップボードへのコピーに失敗しました')
+      showNotice('クリップボードへのコピーに失敗しました')
+      return
+    }
+
+    // コピーに成功してから履歴削除と記憶の更新を行う
+    setIds((prevIds) =>
+      prevIds.filter((prevItem) => prevItem.id !== item.id)
+    )
+
+    rememberId(item.value)
+  }
+
+  // キーボードショートカット（Q・W・1～5）
+  const handleShortcut = useEffectEvent((e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+    if (e.repeat || e.isComposing) return
+    if (isTextEntryElement(e.target)) return
+
+    const key = e.key.toLowerCase()
+
+    // Q：通常のペースト処理を呼び出す
+    if (key === 'q') {
+      e.preventDefault()
+      pasteFromClipboard()
+      return
+    }
+
+    // W：赤・青のIDのうち最も古いものをコピーして削除（灰色はスキップ）
+    if (key === 'w') {
+      e.preventDefault()
+
+      const oldestItem = idsRef.current.findLast(
+        (item) => item.status !== 'copied'
+      )
+
+      if (oldestItem) {
+        copyAndRemoveFromHistory(oldestItem)
+      }
+      return
+    }
+
+    // 1～5：上から数えた位置のIDをコピーして削除
+    if (['1', '2', '3', '4', '5'].includes(key)) {
+      e.preventDefault()
+
+      const targetItem = idsRef.current[Number(key) - 1]
+
+      if (targetItem) {
+        copyAndRemoveFromHistory(targetItem)
+      }
+    }
+  })
+
+  useEffect(() => {
+    const handleKeyDown = (e) => handleShortcut(e)
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
 
   return (
     <div className="app">
@@ -303,24 +470,48 @@ function App() {
         <input
           type="text"
           placeholder="IDを入力"
-          maxLength={8}
+          autoComplete="off"
+          spellCheck={false}
           value={inputId}
-          onChange={(e) => setInputId(e.target.value.slice(0, 8))}
+          onChange={handleInputChange}
+          onPaste={(e) => {
+            // ブラウザ標準の挿入はせず、共通のペースト処理で置き換える
+            e.preventDefault()
+            applyPastedText(e.clipboardData.getData('text'))
+          }}
+          onCompositionEnd={(e) => {
+            // IMEで確定された不正な文字が残らないように元に戻す
+            if (!isAllowedInput(e.currentTarget.value)) {
+              e.currentTarget.value = inputId
+            }
+          }}
           onFocus={pasteFromClipboard}
           onMouseEnter={pasteFromClipboard}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              handleSubmit()
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+              submitId(inputId)
             }
           }}
         />
 
-        <button
-          onMouseEnter={handleSubmitHover}
-          onClick={handleSubmitClick}
-        >
+        <button onClick={() => submitId(inputId)}>
           送信
         </button>
+      </div>
+
+      <div className="status-area">
+        <div className="last-id">
+          直前のID：
+          <span className="last-id-value">
+            {lastId || 'なし'}
+          </span>
+        </div>
+
+        {notice && (
+          <div className="notice" role="alert">
+            {notice}
+          </div>
+        )}
       </div>
 
       <div className="id-list">
@@ -338,11 +529,6 @@ function App() {
             <button
               className={`id-button ${item.status}`}
               onClick={() => {
-                if (item.status !== 'copied') {
-                  copyToClipboard(item.id, item.value)
-                }
-              }}
-              onMouseEnter={() => {
                 if (item.status !== 'copied') {
                   copyToClipboard(item.id, item.value)
                 }
