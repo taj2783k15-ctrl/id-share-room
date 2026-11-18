@@ -22,16 +22,17 @@ export function useIdSender({ passphrase, participantId, isDuplicate, onSent }) 
 
   // IDを送信する（自動送信・明示的な送信の共通処理）
   // 重複判定は自動送信のときだけ行う（Enter・送信ボタンなら同じIDも送れる。救援用と同じ）
-  const submitId = async (value, { auto = false } = {}) => {
+  const submitId = async (value, { auto = false, onSendStarted } = {}) => {
     // 入力欄を経由しない場合に備えて、送信直前にも必ず検証する
-    if (!isSendableId(value)) return
+    if (!isSendableId(value)) return 'not-sent'
 
-    if (auto && isDuplicate(value)) return
+    if (auto && isDuplicate(value)) return 'duplicate-suppressed'
 
     // 送信中に重ねて送信しない
-    if (sendingRef.current) return
+    if (sendingRef.current) return 'not-sent'
 
     sendingRef.current = true
+    onSendStarted?.()
 
     try {
       await sendId(passphrase, participantId, value)
@@ -40,8 +41,10 @@ export function useIdSender({ passphrase, participantId, isDuplicate, onSent }) 
 
       // 送信したIDが入力欄に残っていれば消す
       setInputId((prev) => (prev === value ? '' : prev))
+      return 'succeeded'
     } catch {
       console.log('Firebaseへの送信に失敗しました')
+      return 'failed'
     } finally {
       sendingRef.current = false
     }

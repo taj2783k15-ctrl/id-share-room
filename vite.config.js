@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         rescue: resolve(projectRoot, 'index.html'),
         system: resolve(projectRoot, 'system.html'),
+        expansion: resolve(projectRoot, 'expansion.html'),
       },
     },
   },

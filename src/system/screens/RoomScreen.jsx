@@ -21,6 +21,29 @@ import RoomMessageScreen from '../components/RoomMessageScreen.jsx'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 import '../styles/Room.css'
 
+const DIAGNOSTIC_SOURCE = 'kosenjo-id-share-extension'
+const DIAGNOSTIC_STAGES = new Set(['capture_check', 'capture_skip', 'capture', 'bridge', 'routing', 'site'])
+
+function normalizeDiagnostic(item) {
+  if (!item || typeof item !== 'object') return null
+  const stage = typeof item.stage === 'string' ? item.stage : ''
+  const reason = typeof item.reason === 'string' ? item.reason : ''
+  if (!DIAGNOSTIC_STAGES.has(stage) || !reason) return null
+  return {
+    at: Number.isFinite(item.at) ? item.at : Date.now(),
+    stage,
+    reason: reason.replace(/[A-Za-z0-9]{8}/g, '[ID省略]').slice(0, 100),
+  }
+}
+
+function mergeDiagnostics(previous, incoming) {
+  const unique = new Map()
+  for (const item of [...previous, ...incoming].map(normalizeDiagnostic).filter(Boolean)) {
+    unique.set(`${item.at}:${item.stage}:${item.reason}`, item)
+  }
+  return [...unique.values()].sort((a, b) => b.at - a.at).slice(0, 20)
+}
+
 // ルーム内画面
 // session : { passphrase, nickname, participantId, isHost }
 // onExit  : トップ画面へ戻る（退室処理は呼び出し前に済ませる）
@@ -34,7 +57,12 @@ function RoomScreen({ session, onExit }) {
   const [targetTabId, setTargetTabId] = useState(() => sessionStorage.getItem(targetKey) || '')
   const [gameTabs, setGameTabs] = useState([])
   const [bridgeStatus, setBridgeStatus] = useState('拡張機能の連携はOFFです')
+  const [diagnostics, setDiagnostics] = useState([])
   const remoteIdQueue = useRef(Promise.resolve())
+
+  const reportSiteDiagnostic = (reason) => {
+    requestExtension('report-diagnostic', { stage: 'site', reason })
+  }
 
   const handleRemoteId = (value) => {
     if (!bridgeEnabled || !/^[A-Za-z0-9]{8}$/.test(value)) return
@@ -114,8 +142,22 @@ function RoomScreen({ session, onExit }) {
   const handleExtensionEvent = useEffectEvent(async (message) => {
     if (message.type === 'captured-id') {
       if (!bridgeEnabled) return
-      const accepted = await submitId(message.code, { auto: true })
-      setBridgeStatus(accepted ? '自発救援IDを共有しました' : 'ID共有を確認してください（重複・未送信の可能性）')
+      const result = await submitId(message.code, {
+        auto: true,
+        onSendStarted: () => reportSiteDiagnostic('firebase_send_started'),
+      })
+      if (result === 'succeeded') {
+        reportSiteDiagnostic('firebase_send_succeeded')
+        setBridgeStatus('自発救援IDを共有しました')
+      } else if (result === 'duplicate-suppressed') {
+        reportSiteDiagnostic('firebase_duplicate_suppressed')
+        setBridgeStatus('重複IDのため共有を省略しました')
+      } else if (result === 'failed') {
+        reportSiteDiagnostic('firebase_send_failed')
+        setBridgeStatus('自発救援IDを共有できませんでした')
+      } else {
+        setBridgeStatus('自発救援IDを送信できませんでした')
+      }
     } else if (message.type === 'join-route-status') {
       setBridgeStatus(message.status === 'id-filled'
         ? 'ID入力欄にセットしました（参加確定はゲーム画面で確認）'
@@ -123,12 +165,27 @@ function RoomScreen({ session, onExit }) {
     }
   })
 
+  const handleDiagnosticMessage = useEffectEvent((event) => {
+    if (event.source !== window || event.origin !== location.origin) return
+    const message = event.data
+    if (message?.source !== DIAGNOSTIC_SOURCE || message.type !== 'diagnostic') return
+    setDiagnostics((previous) => mergeDiagnostics(previous, [message.item]))
+  })
+
   useEffect(() => {
     const timer = setTimeout(() => refreshGameTabs(), 0)
     const unsubscribe = onExtensionEvent((message) => handleExtensionEvent(message))
+    const onMessage = (event) => handleDiagnosticMessage(event)
+    window.addEventListener('message', onMessage)
+    requestExtension('get-diagnostics').then((response) => {
+      if (response.ok && Array.isArray(response.items)) {
+        setDiagnostics((previous) => mergeDiagnostics(previous, response.items))
+      }
+    })
     return () => {
       clearTimeout(timer)
       unsubscribe()
+      window.removeEventListener('message', onMessage)
     }
   }, [refreshGameTabs])
 
@@ -327,6 +384,23 @@ function RoomScreen({ session, onExit }) {
           <button className="menu-button" type="button" onClick={refreshGameTabs}>タブ更新</button>
         </div>
         <div className="room-extension-status" role="status">{bridgeStatus}</div>
+        <details className="room-diagnostics">
+          <summary>直近の連携診断（{diagnostics.length}件）</summary>
+          {diagnostics.length ? (
+            <ul>
+              {diagnostics.map((item) => (
+                <li key={`${item.at}:${item.stage}:${item.reason}`}>
+                  <time dateTime={new Date(item.at).toISOString()}>
+                    {new Date(item.at).toLocaleTimeString()}
+                  </time>{' '}
+                  <strong>{item.stage}</strong> / {item.reason}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>診断記録はありません。</p>
+          )}
+        </details>
       </section>
 
       <div className="room-actions">
