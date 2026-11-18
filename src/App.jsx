@@ -317,7 +317,9 @@ function App({ extensionMode = false }) {
   const refreshGameTabs = async () => {
     const result = await requestExtension('list-game-tabs')
     if (!result.ok) {
-      setExtensionStatus(result.reason === 'extension-timeout' ? '拡張機能に接続できません' : 'ゲームタブ一覧を取得できません')
+      setExtensionStatus(result.reason === 'extension-timeout'
+        ? '拡張機能に接続できません'
+        : `ゲームタブ一覧を取得できません: ${result.reason || '理由不明'}`)
       return
     }
     setGameTabs(result.tabs || [])
