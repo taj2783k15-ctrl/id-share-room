@@ -1,0 +1,44 @@
+.expansion-controls {
+  width: min(100%, 760px);
+  box-sizing: border-box;
+  margin: 0 auto 20px;
+  padding: 16px;
+  border: 1px solid #6996b6;
+  border-radius: 10px;
+  background: #eef7fc;
+  color: #173d58;
+}
+
+.expansion-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.expansion-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.expansion-target select {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 7px;
+}
+
+.expansion-target button {
+  padding: 7px 12px;
+}
+
+.expansion-status,
+.expansion-note {
+  margin: 10px 0 0;
+}
+
+.expansion-note {
+  font-size: 0.9rem;
+}

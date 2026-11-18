@@ -7,11 +7,16 @@ import {
   remove,
 } from 'firebase/database'
 import { database } from './firebase'
+import { onExtensionEvent, requestExtension } from './system/lib/browserBridge.js'
+import ExpansionControls from './ExpansionControls.jsx'
 import './App.css'
 
 const STORAGE_KEY = 'id-share-room-ids'
 const CLIENT_KEY = 'id-share-room-client-id'
 const LAST_ID_KEY = 'id-share-room-last-id'
+const EXPANSION_ENABLED_KEY = 'kosenjo-id-share-expansion-enabled'
+const EXPANSION_TARGET_KEY = 'kosenjo-id-share-expansion-target'
+const EXPANSION_DELIVERED_KEY = 'kosenjo-id-share-expansion-delivered'
 
 const ID_LENGTH = 8
 
@@ -47,7 +52,7 @@ const isTextEntryElement = (element) => {
   return false
 }
 
-function App() {
+function App({ extensionMode = false }) {
   const [inputId, setInputId] = useState('')
   const [clientId] = useState(() => {
     let id = sessionStorage.getItem(CLIENT_KEY)
@@ -79,12 +84,33 @@ function App() {
 
   // クリップボード操作の失敗などをユーザーに知らせるメッセージ
   const [notice, setNotice] = useState('')
+  const [extensionEnabled, setExtensionEnabled] = useState(() =>
+    extensionMode && sessionStorage.getItem(EXPANSION_ENABLED_KEY) === 'true'
+  )
+  const [targetTabId, setTargetTabId] = useState(() =>
+    extensionMode ? sessionStorage.getItem(EXPANSION_TARGET_KEY) || '' : ''
+  )
+  const [gameTabs, setGameTabs] = useState([])
+  const [extensionStatus, setExtensionStatus] = useState(() =>
+    extensionMode && sessionStorage.getItem(EXPANSION_ENABLED_KEY) === 'true'
+      ? 'タブを更新して入力先を確認してください'
+      : '拡張機能の連携はOFFです'
+  )
 
   // 非同期処理の途中でも最新の値を参照するためのref
   const idsRef = useRef(ids)
   const lastIdRef = useRef(lastId)
   const sendingRef = useRef(false)
   const noticeTimerRef = useRef(null)
+  const deliveryQueueRef = useRef(Promise.resolve())
+  const deliveredIdsRef = useRef((() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(EXPANSION_DELIVERED_KEY) || '[]')
+      return new Set(Array.isArray(saved) ? saved.filter((id) => typeof id === 'string') : [])
+    } catch {
+      return new Set()
+    }
+  })())
 
   // Reactの履歴が変わったらsessionStorageにも保存
   useEffect(() => {
@@ -153,6 +179,26 @@ function App() {
     }
   })
 
+  const deliverIncomingId = useEffectEvent((messageId, data) => {
+    if (!extensionMode || !extensionEnabled || !AUTO_SEND_PATTERN.test(data.value || '')) return
+    if (!Number.isFinite(data.createdAt) || Date.now() - data.createdAt > 10000) return
+    if (deliveredIdsRef.current.has(messageId)) return
+    if (!targetTabId) {
+      setExtensionStatus('IDの入力先GBFタブを選択してください')
+      return
+    }
+    deliveredIdsRef.current.add(messageId)
+    const recent = [...deliveredIdsRef.current].slice(-50)
+    deliveredIdsRef.current = new Set(recent)
+    sessionStorage.setItem(EXPANSION_DELIVERED_KEY, JSON.stringify(recent))
+    deliveryQueueRef.current = deliveryQueueRef.current.then(async () => {
+      const result = await requestExtension('send-to-game', { tabId: Number(targetTabId), code: data.value })
+      setExtensionStatus(result.ok
+        ? (result.status === 'id-filled' ? '指定タブのID入力欄にセットしました' : '指定タブをID入力画面へ移動しています')
+        : `IDを指定タブへ送れませんでした: ${result.reason || '不明な理由'}`)
+    }).catch(() => setExtensionStatus('IDを指定タブへ送れませんでした'))
+  })
+
   // FirebaseのID一覧を監視
   useEffect(() => {
     const idsRef = ref(database, 'ids')
@@ -189,6 +235,7 @@ function App() {
       // 他の人から受信したIDだけ通知音を鳴らす
       if (!isSelf) {
         playNotificationSound()
+        deliverIncomingId(newItem.id, data)
       }
 
       // 3秒後に赤 → 青
@@ -216,15 +263,19 @@ function App() {
   }, [clientId])
 
   // IDを送信する（自動送信・明示的な送信の共通処理）
-  const submitId = async (value) => {
+  const submitId = async (value, { auto = false } = {}) => {
     // 入力欄を経由しない場合に備えて、送信直前にも必ず検証する
     if (!SEND_PATTERN.test(value)) {
       showNotice('送信できるのは半角英数字8文字以内です')
-      return
+      return false
     }
 
+    if (auto && (!AUTO_SEND_PATTERN.test(value) ||
+      idsRef.current.some((item) => isSameId(item.value, value)) ||
+      (lastIdRef.current && isSameId(lastIdRef.current, value)))) return false
+
     // 送信中に重ねて送信しない
-    if (sendingRef.current) return
+    if (sendingRef.current) return false
 
     sendingRef.current = true
 
@@ -240,9 +291,11 @@ function App() {
 
       // 送信したIDが入力欄に残っていれば消す
       setInputId((prev) => (prev === value ? '' : prev))
+      return true
     } catch (error) {
       console.log('Firebaseへの送信に失敗しました')
       showNotice('送信に失敗しました')
+      return false
     } finally {
       sendingRef.current = false
     }
@@ -258,8 +311,60 @@ function App() {
     // 更新前の記憶と比較してから送信する（記憶の更新は送信後）
     if (lastIdRef.current && isSameId(lastIdRef.current, value)) return
 
-    submitId(value)
+    submitId(value, { auto: true })
   }
+
+  const refreshGameTabs = async () => {
+    const result = await requestExtension('list-game-tabs')
+    if (!result.ok) {
+      setExtensionStatus(result.reason === 'extension-timeout' ? '拡張機能に接続できません' : 'ゲームタブ一覧を取得できません')
+      return
+    }
+    setGameTabs(result.tabs || [])
+    setExtensionStatus((result.tabs || []).length ? 'ゲームタブを選択できます' : 'GBFのタブを開いてください')
+  }
+
+  const handleEnabledChange = (enabled) => {
+    sessionStorage.setItem(EXPANSION_ENABLED_KEY, String(enabled))
+    setExtensionEnabled(enabled)
+    if (enabled) refreshGameTabs()
+    else setExtensionStatus('拡張機能の連携はOFFです')
+  }
+
+  const handleTargetChange = (tabId) => {
+    sessionStorage.setItem(EXPANSION_TARGET_KEY, tabId)
+    setTargetTabId(tabId)
+  }
+
+  const handleExtensionEvent = useEffectEvent(async (message) => {
+    if (!extensionMode || !extensionEnabled) return
+    if (message.type === 'captured-id') {
+      const sent = await submitId(message.code, { auto: true })
+      setExtensionStatus(sent ? '自発救援IDを共有しました' : 'ID共有を確認してください（重複・未送信の可能性）')
+    } else if (message.type === 'join-route-status') {
+      const labels = {
+        'id-filled': 'ID入力欄にセットしました（参加確定はゲーム画面で確認）',
+        'supporter-route-reached': '指定タブがサポーター画面へ進みました',
+        'quest-start-tapped': '開始ボタンを押しました。戦闘画面への遷移を確認してください',
+        'battle-route-reached': '指定タブが戦闘画面へ進みました',
+      }
+      setExtensionStatus(labels[message.status] || 'ゲーム画面の状態を確認してください')
+    } else if (message.type === 'diagnostic') {
+      const reasons = {
+        multiple_enabled_rooms: '連携ONのページが複数あります。使うページだけONにしてください',
+        no_enabled_room: '連携ONのページが見つかりません',
+        target_tab_busy: '指定タブが戦闘中などのためIDを入力できません',
+        id_input_not_found: 'ゲームのID入力欄が見つかりません',
+        target_tab_unavailable: '指定タブが見つかりません。タブ一覧を更新してください',
+      }
+      if (reasons[message.item?.reason]) setExtensionStatus(reasons[message.item.reason])
+    }
+  })
+
+  useEffect(() => {
+    if (!extensionMode) return undefined
+    return onExtensionEvent(handleExtensionEvent)
+  }, [extensionMode])
 
   // ペーストされた文字列で入力欄を置き換える（すべてのペーストの共通処理）
   const applyPastedText = (text) => {
@@ -433,7 +538,7 @@ function App() {
           </span>
         </div>
 
-        <h1>ID共有システム</h1>
+        <h1>{extensionMode ? '拡張版 ID共有' : 'ID共有システム'}</h1>
 
         <div className="volume-area">
           <label htmlFor="volume">🔊 音量</label>
@@ -465,6 +570,18 @@ function App() {
           <span>%</span>
         </div>
       </div>
+
+      {extensionMode && (
+        <ExpansionControls
+          enabled={extensionEnabled}
+          onEnabledChange={handleEnabledChange}
+          targetTabId={targetTabId}
+          onTargetChange={handleTargetChange}
+          gameTabs={gameTabs}
+          onRefresh={refreshGameTabs}
+          status={extensionStatus}
+        />
+      )}
 
       <div className="input-area">
         <input

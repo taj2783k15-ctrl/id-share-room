@@ -29,7 +29,7 @@ export function onExtensionEvent(callback) {
     if (event.source !== window || event.origin !== location.origin) return
     const message = event.data
     if (message?.source !== EXT_SOURCE) return
-    if (message.type === 'captured-id' || message.type === 'join-route-status') callback(message)
+    if (message.type === 'captured-id' || message.type === 'join-route-status' || message.type === 'diagnostic') callback(message)
   }
 
   window.addEventListener('message', onMessage)
