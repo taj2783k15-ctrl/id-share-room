@@ -15,6 +15,7 @@ const STORAGE_KEY = 'id-share-room-ids'
 const CLIENT_KEY = 'id-share-room-client-id'
 const LAST_ID_KEY = 'id-share-room-last-id'
 const EXPANSION_ENABLED_KEY = 'kosenjo-id-share-expansion-enabled'
+const EXPANSION_SENDER_KEY = 'kosenjo-id-share-expansion-sender'
 const EXPANSION_TARGET_KEY = 'kosenjo-id-share-expansion-target'
 const EXPANSION_DELIVERED_KEY = 'kosenjo-id-share-expansion-delivered'
 
@@ -86,6 +87,9 @@ function App({ extensionMode = false }) {
   const [notice, setNotice] = useState('')
   const [extensionEnabled, setExtensionEnabled] = useState(() =>
     extensionMode && sessionStorage.getItem(EXPANSION_ENABLED_KEY) === 'true'
+  )
+  const [senderTabId, setSenderTabId] = useState(() =>
+    extensionMode ? sessionStorage.getItem(EXPANSION_SENDER_KEY) || '' : ''
   )
   const [targetTabId, setTargetTabId] = useState(() =>
     extensionMode ? sessionStorage.getItem(EXPANSION_TARGET_KEY) || '' : ''
@@ -322,8 +326,21 @@ function App({ extensionMode = false }) {
         : `ゲームタブ一覧を取得できません: ${result.reason || '理由不明'}`)
       return
     }
-    setGameTabs(result.tabs || [])
-    setExtensionStatus((result.tabs || []).length ? 'ゲームタブを選択できます' : 'GBFのタブを開いてください')
+    const tabs = result.tabs || []
+    setGameTabs(tabs)
+    const senderAvailable = !!senderTabId && tabs.some((tab) => String(tab.tabId) === senderTabId)
+    const targetAvailable = !!targetTabId && tabs.some((tab) => String(tab.tabId) === targetTabId)
+    if (senderTabId && !senderAvailable) {
+      sessionStorage.removeItem(EXPANSION_SENDER_KEY)
+      setSenderTabId('')
+    }
+    if (targetTabId && !targetAvailable) {
+      sessionStorage.removeItem(EXPANSION_TARGET_KEY)
+      setTargetTabId('')
+    }
+    setExtensionStatus(!tabs.length ? 'GBFのタブを開いてください'
+      : senderAvailable && targetAvailable ? '送信元と受信先を設定しました'
+        : '送信元と受信先のタブを選択してください')
   }
 
   const handleEnabledChange = (enabled) => {
@@ -336,16 +353,26 @@ function App({ extensionMode = false }) {
   const handleTargetChange = (tabId) => {
     sessionStorage.setItem(EXPANSION_TARGET_KEY, tabId)
     setTargetTabId(tabId)
+    setExtensionStatus(tabId && senderTabId ? '送信元と受信先を設定しました' : '送信元と受信先のタブを選択してください')
+  }
+
+  const handleSenderChange = (tabId) => {
+    sessionStorage.setItem(EXPANSION_SENDER_KEY, tabId)
+    setSenderTabId(tabId)
+    setExtensionStatus(tabId && targetTabId ? '送信元と受信先を設定しました' : '送信元と受信先のタブを選択してください')
   }
 
   const handleExtensionEvent = useEffectEvent(async (message) => {
     if (!extensionMode || !extensionEnabled) return
     if (message.type === 'captured-id') {
+      if (!senderTabId || String(message.senderTabId) !== senderTabId) return
       const sent = await submitId(message.code, { auto: true })
       setExtensionStatus(sent ? '救援IDを共有しました' : 'ID共有を確認してください（重複・未送信の可能性）')
     } else if (message.type === 'join-route-status') {
       const labels = {
-        'id-filled': 'ID入力欄にセットしました（参加確定はゲーム画面で確認）',
+        'id-filled': 'ID入力欄にセットしました。参加操作を確認中です',
+        'entry-submit-tapped': '「参加する」を押しました。画面遷移を確認中です',
+        'entry-submit-unavailable': '「参加する」ボタンを確認できません。ゲーム画面を確認してください',
         'supporter-route-reached': '指定タブがサポーター画面へ進みました',
         'quest-start-tapped': '開始ボタンを押しました。戦闘画面への遷移を確認してください',
         'battle-route-reached': '指定タブが戦闘画面へ進みました',
@@ -358,6 +385,8 @@ function App({ extensionMode = false }) {
         target_tab_busy: '指定タブが戦闘中などのためIDを入力できません',
         id_input_not_found: 'ゲームのID入力欄が見つかりません',
         target_tab_unavailable: '指定タブが見つかりません。タブ一覧を更新してください',
+        sender_tab_not_selected: 'IDを送信するGBFタブを選択してください',
+        sender_tab_mismatch: '選択した送信元とは別のGBFタブからIDを取得しました',
       }
       if (reasons[message.item?.reason]) setExtensionStatus(reasons[message.item.reason])
     }
@@ -577,6 +606,8 @@ function App({ extensionMode = false }) {
         <ExpansionControls
           enabled={extensionEnabled}
           onEnabledChange={handleEnabledChange}
+          senderTabId={senderTabId}
+          onSenderChange={handleSenderChange}
           targetTabId={targetTabId}
           onTargetChange={handleTargetChange}
           gameTabs={gameTabs}

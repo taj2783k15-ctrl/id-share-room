@@ -1,6 +1,6 @@
 import './ExpansionControls.css'
 
-function ExpansionControls({ enabled, onEnabledChange, targetTabId, onTargetChange, gameTabs, onRefresh, status }) {
+function ExpansionControls({ enabled, onEnabledChange, senderTabId, onSenderChange, targetTabId, onTargetChange, gameTabs, onRefresh, status }) {
   return (
     <section className="expansion-controls" aria-label="拡張機能の連携">
       <label className="expansion-toggle">
@@ -8,8 +8,19 @@ function ExpansionControls({ enabled, onEnabledChange, targetTabId, onTargetChan
         自動共有とID受信を有効にする
       </label>
       <div className="expansion-target">
-        <label htmlFor="expansion-game-tab">IDを入力するGBFタブ</label>
-        <select id="expansion-game-tab" value={targetTabId} onChange={(event) => onTargetChange(event.target.value)} disabled={!enabled}>
+        <label htmlFor="expansion-sender-tab">IDを送信するGBFタブ</label>
+        <select id="expansion-sender-tab" value={senderTabId} onChange={(event) => onSenderChange(event.target.value)} disabled={!enabled}>
+          <option value="">タブを選択してください</option>
+          {gameTabs.map((tab) => (
+            <option key={tab.tabId} value={tab.tabId}>
+              {tab.title || 'GBF'} (タブ {tab.tabId})
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="expansion-target">
+        <label htmlFor="expansion-receiver-tab">IDを受信するGBFタブ</label>
+        <select id="expansion-receiver-tab" value={targetTabId} onChange={(event) => onTargetChange(event.target.value)} disabled={!enabled}>
           <option value="">タブを選択してください</option>
           {gameTabs.map((tab) => (
             <option key={tab.tabId} value={tab.tabId}>
@@ -20,7 +31,7 @@ function ExpansionControls({ enabled, onEnabledChange, targetTabId, onTargetChan
         <button type="button" onClick={onRefresh} disabled={!enabled}>タブを更新</button>
       </div>
       <p className="expansion-status" role="status">{status}</p>
-      <p className="expansion-note">受信IDは選択したタブへ送ります。入力後にサポーター画面へ進むと開始ボタンを押します。ID入力画面の参加確定はゲーム画面で確認してください。</p>
+      <p className="expansion-note">送信元と受信先には同じタブも選べます。受信時は選択したタブでID入力画面を開き、「参加する」とサポーター画面の開始ボタンを押します。戦闘中のタブは移動しません。</p>
     </section>
   )
 }
