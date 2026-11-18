@@ -10,6 +10,7 @@ import {
 import { database } from './firebase'
 import { onExtensionEvent, requestExtension } from './system/lib/browserBridge.js'
 import ExpansionControls from './ExpansionControls.jsx'
+import { pickReceiver } from './expansionRouting.js'
 import './App.css'
 
 const STORAGE_KEY = 'id-share-room-ids'
@@ -18,6 +19,8 @@ const LAST_ID_KEY = 'id-share-room-last-id'
 const EXPANSION_ENABLED_KEY = 'kosenjo-id-share-expansion-enabled'
 const EXPANSION_SENDER_KEY = 'kosenjo-id-share-expansion-sender'
 const EXPANSION_TARGET_KEY = 'kosenjo-id-share-expansion-target'
+const EXPANSION_TARGETS_KEY = 'kosenjo-id-share-expansion-targets'
+const EXPANSION_CURSOR_KEY = 'kosenjo-id-share-expansion-cursor'
 const EXPANSION_DELIVERED_KEY = 'kosenjo-id-share-expansion-delivered'
 
 const ID_LENGTH = 8
@@ -33,6 +36,26 @@ const isAllowedInput = (text) => INPUT_PATTERN.test(text)
 
 // 大文字・小文字を区別せずに比較する
 const isSameId = (a, b) => a.toLowerCase() === b.toLowerCase()
+
+const readReceiverTabs = () => {
+  try {
+    const saved = sessionStorage.getItem(EXPANSION_TARGETS_KEY)
+    if (saved !== null) {
+      const parsed = JSON.parse(saved)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const seen = new Set()
+        return parsed.slice(0, 3).map((value) => {
+          const tabId = typeof value === 'string' && /^\d+$/.test(value) ? value : ''
+          if (!tabId || seen.has(tabId)) return ''
+          seen.add(tabId)
+          return tabId
+        })
+      }
+    }
+  } catch { /* 旧形式を読む */ }
+  const oldTarget = sessionStorage.getItem(EXPANSION_TARGET_KEY)
+  return [oldTarget && /^\d+$/.test(oldTarget) ? oldTarget : '']
+}
 
 // テキスト入力中かどうか（ショートカットを無効にする判定）
 const NON_TEXT_INPUT_TYPES = [
@@ -92,9 +115,7 @@ function App({ extensionMode = false }) {
   const [senderTabId, setSenderTabId] = useState(() =>
     extensionMode ? sessionStorage.getItem(EXPANSION_SENDER_KEY) || '' : ''
   )
-  const [targetTabId, setTargetTabId] = useState(() =>
-    extensionMode ? sessionStorage.getItem(EXPANSION_TARGET_KEY) || '' : ''
-  )
+  const [receiverTabIds, setReceiverTabIds] = useState(() => extensionMode ? readReceiverTabs() : [''])
   const [gameTabs, setGameTabs] = useState([])
   const [extensionStatus, setExtensionStatus] = useState(() =>
     extensionMode && sessionStorage.getItem(EXPANSION_ENABLED_KEY) === 'true'
@@ -108,6 +129,10 @@ function App({ extensionMode = false }) {
   const sendingRef = useRef(false)
   const noticeTimerRef = useRef(null)
   const deliveryQueueRef = useRef(Promise.resolve())
+  const deliveryCursorRef = useRef((() => {
+    const cursor = Number(sessionStorage.getItem(EXPANSION_CURSOR_KEY))
+    return Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0
+  })())
   const deliveredIdsRef = useRef((() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(EXPANSION_DELIVERED_KEY) || '[]')
@@ -188,10 +213,15 @@ function App({ extensionMode = false }) {
     if (!extensionMode || !extensionEnabled || !AUTO_SEND_PATTERN.test(data.value || '')) return
     if (!Number.isFinite(data.createdAt) || Date.now() - data.createdAt > 10000) return
     if (deliveredIdsRef.current.has(messageId)) return
-    if (!targetTabId) {
-      setExtensionStatus('IDの入力先GBFタブを選択してください')
+    const receiver = pickReceiver(receiverTabIds, deliveryCursorRef.current)
+    if (!receiver) {
+      setExtensionStatus('IDを受信するGBFタブを選択してください')
       return
     }
+    const receiverNumber = receiver.index + 1
+    const targetTabId = receiver.tabId
+    deliveryCursorRef.current += 1
+    sessionStorage.setItem(EXPANSION_CURSOR_KEY, String(deliveryCursorRef.current))
     deliveredIdsRef.current.add(messageId)
     const recent = [...deliveredIdsRef.current].slice(-50)
     deliveredIdsRef.current = new Set(recent)
@@ -199,9 +229,9 @@ function App({ extensionMode = false }) {
     deliveryQueueRef.current = deliveryQueueRef.current.then(async () => {
       const result = await requestExtension('send-to-game', { tabId: Number(targetTabId), code: data.value, autoStart: true })
       setExtensionStatus(result.ok
-        ? (result.status === 'id-filled' ? '指定タブのID入力欄にセットしました' : '指定タブをID入力画面へ移動しています')
-        : `IDを指定タブへ送れませんでした: ${result.reason || '不明な理由'}`)
-    }).catch(() => setExtensionStatus('IDを指定タブへ送れませんでした'))
+        ? (result.status === 'id-filled' ? `受信${receiverNumber}のID入力欄にセットしました` : `受信${receiverNumber}をID入力画面へ移動しています`)
+        : `受信${receiverNumber}へIDを送れませんでした: ${result.reason || '不明な理由'}`)
+    }).catch(() => setExtensionStatus(`受信${receiverNumber}へIDを送れませんでした`))
   })
 
   // FirebaseのID一覧を監視
@@ -319,6 +349,14 @@ function App({ extensionMode = false }) {
     submitId(value, { auto: true })
   }
 
+  const saveReceiverTabs = (tabs) => {
+    sessionStorage.setItem(EXPANSION_TARGETS_KEY, JSON.stringify(tabs))
+    sessionStorage.removeItem(EXPANSION_TARGET_KEY)
+    deliveryCursorRef.current = 0
+    sessionStorage.setItem(EXPANSION_CURSOR_KEY, '0')
+    setReceiverTabIds(tabs)
+  }
+
   const refreshGameTabs = async () => {
     const result = await requestExtension('list-game-tabs')
     if (!result.ok) {
@@ -330,17 +368,16 @@ function App({ extensionMode = false }) {
     const tabs = result.tabs || []
     setGameTabs(tabs)
     const senderAvailable = !!senderTabId && tabs.some((tab) => String(tab.tabId) === senderTabId)
-    const targetAvailable = !!targetTabId && tabs.some((tab) => String(tab.tabId) === targetTabId)
+    const availableIds = new Set(tabs.map((tab) => String(tab.tabId)))
+    const currentReceivers = receiverTabIds.map((tabId) => availableIds.has(tabId) ? tabId : '')
+    const hasReceiver = currentReceivers.some(Boolean)
     if (senderTabId && !senderAvailable) {
       sessionStorage.removeItem(EXPANSION_SENDER_KEY)
       setSenderTabId('')
     }
-    if (targetTabId && !targetAvailable) {
-      sessionStorage.removeItem(EXPANSION_TARGET_KEY)
-      setTargetTabId('')
-    }
+    if (currentReceivers.some((tabId, index) => tabId !== receiverTabIds[index])) saveReceiverTabs(currentReceivers)
     setExtensionStatus(!tabs.length ? 'GBFのタブを開いてください'
-      : senderAvailable && targetAvailable ? '送信元と受信先を設定しました'
+      : senderAvailable && hasReceiver ? '送信元と受信先を設定しました'
         : '送信元と受信先のタブを選択してください')
   }
 
@@ -351,16 +388,32 @@ function App({ extensionMode = false }) {
     else setExtensionStatus('拡張機能の連携はOFFです')
   }
 
-  const handleTargetChange = (tabId) => {
-    sessionStorage.setItem(EXPANSION_TARGET_KEY, tabId)
-    setTargetTabId(tabId)
-    setExtensionStatus(tabId && senderTabId ? '送信元と受信先を設定しました' : '送信元と受信先のタブを選択してください')
+  const handleReceiverChange = (index, tabId) => {
+    if (tabId && receiverTabIds.some((selected, otherIndex) => otherIndex !== index && selected === tabId)) {
+      setExtensionStatus('同じGBFタブを受信先に重複登録できません')
+      return
+    }
+    const next = receiverTabIds.map((selected, slot) => slot === index ? tabId : selected)
+    saveReceiverTabs(next)
+    setExtensionStatus(senderTabId && next.some(Boolean) ? '送信元と受信先を設定しました' : '送信元と受信先のタブを選択してください')
+  }
+
+  const handleReceiverAdd = () => {
+    if (receiverTabIds.length >= 3) return
+    saveReceiverTabs([...receiverTabIds, ''])
+  }
+
+  const handleReceiverRemove = (index) => {
+    if (receiverTabIds.length <= 1) return
+    const next = receiverTabIds.filter((_, slot) => slot !== index)
+    saveReceiverTabs(next)
+    setExtensionStatus(senderTabId && next.some(Boolean) ? '送信元と受信先を設定しました' : '送信元と受信先のタブを選択してください')
   }
 
   const handleSenderChange = (tabId) => {
     sessionStorage.setItem(EXPANSION_SENDER_KEY, tabId)
     setSenderTabId(tabId)
-    setExtensionStatus(tabId && targetTabId ? '送信元と受信先を設定しました' : '送信元と受信先のタブを選択してください')
+    setExtensionStatus(tabId && receiverTabIds.some(Boolean) ? '送信元と受信先を設定しました' : '送信元と受信先のタブを選択してください')
   }
 
   const handleExtensionEvent = useEffectEvent(async (message) => {
@@ -619,8 +672,10 @@ function App({ extensionMode = false }) {
           onEnabledChange={handleEnabledChange}
           senderTabId={senderTabId}
           onSenderChange={handleSenderChange}
-          targetTabId={targetTabId}
-          onTargetChange={handleTargetChange}
+          receiverTabIds={receiverTabIds}
+          onReceiverChange={handleReceiverChange}
+          onReceiverAdd={handleReceiverAdd}
+          onReceiverRemove={handleReceiverRemove}
           gameTabs={gameTabs}
           onRefresh={refreshGameTabs}
           status={extensionStatus}

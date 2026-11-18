@@ -6,6 +6,7 @@ function RoomHeader({
   participantCount,
   capacity,
   amHost,
+  roleId,
   volume,
   onVolumeChange,
 }) {
@@ -21,6 +22,7 @@ function RoomHeader({
         <span className="role-badge">
           {amHost ? 'ホスト' : '参加者'}
         </span>
+        {roleId && <span className="role-badge">あなたは{roleId}担当</span>}
       </div>
 
       <VolumeControl

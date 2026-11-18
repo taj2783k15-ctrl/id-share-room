@@ -31,6 +31,7 @@ export const MESSAGE_TTL_MS = 3000
 
 const roomsRef = () => ref(database, 'rooms')
 export const roomRef = (passphrase) => child(roomsRef(), passphrase)
+export const getRoomData = async (passphrase) => (await get(roomRef(passphrase))).val()
 export const messagesRef = (passphrase) =>
   child(roomRef(passphrase), 'messages')
 const participantsRef = (passphrase) =>
@@ -184,6 +185,7 @@ export const joinRoom = async ({ passphrase, nickname }) => {
 
   return participantId
 }
+
 
 export const sendId = async (passphrase, participantId, value) => {
   const messageRef = push(messagesRef(passphrase))

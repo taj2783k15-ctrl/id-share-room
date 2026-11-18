@@ -138,7 +138,7 @@ export function useRoomSync({ session, volume, onEnd, onRemoteId }) {
     // 他の人から受信したIDだけ通知音を鳴らす
     if (!isSelf) {
       playNotificationSound(volume)
-      onRemoteId?.(data.value, data.participantId)
+      onRemoteId?.(data.value, data.participantId, roomDataRef.current)
     }
 
     // Firebase上の共有IDデータは3秒後に削除（画面の履歴は残す）
