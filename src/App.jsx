@@ -342,7 +342,7 @@ function App({ extensionMode = false }) {
     if (!extensionMode || !extensionEnabled) return
     if (message.type === 'captured-id') {
       const sent = await submitId(message.code, { auto: true })
-      setExtensionStatus(sent ? '自発救援IDを共有しました' : 'ID共有を確認してください（重複・未送信の可能性）')
+      setExtensionStatus(sent ? '救援IDを共有しました' : 'ID共有を確認してください（重複・未送信の可能性）')
     } else if (message.type === 'join-route-status') {
       const labels = {
         'id-filled': 'ID入力欄にセットしました（参加確定はゲーム画面で確認）',
