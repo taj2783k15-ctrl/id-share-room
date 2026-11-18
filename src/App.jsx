@@ -4,6 +4,7 @@ import {
   ref,
   push,
   onChildAdded,
+  get,
   remove,
 } from 'firebase/database'
 import { database } from './firebase'
@@ -455,12 +456,22 @@ function App({ extensionMode = false }) {
 
   // FirebaseとReactの履歴を全件削除
   const handleDeleteAll = async () => {
+    setIds([])
+    sessionStorage.removeItem(STORAGE_KEY)
+
     try {
-      await remove(ref(database, 'ids'))
-      setIds([])
-      sessionStorage.removeItem(STORAGE_KEY)
+      const snapshot = await get(ref(database, 'ids'))
+      const deletions = []
+      snapshot.forEach((item) => {
+        deletions.push(remove(ref(database, `ids/${item.key}`)))
+      })
+      const results = await Promise.allSettled(deletions)
+      if (results.some((result) => result.status === 'rejected')) {
+        showNotice('Firebase上のIDを一部削除できませんでした')
+      }
     } catch (error) {
       console.log('Firebaseの全件削除に失敗しました')
+      showNotice('Firebase上のIDを削除できませんでした')
     }
   }
 
