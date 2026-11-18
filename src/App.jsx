@@ -192,7 +192,7 @@ function App({ extensionMode = false }) {
     deliveredIdsRef.current = new Set(recent)
     sessionStorage.setItem(EXPANSION_DELIVERED_KEY, JSON.stringify(recent))
     deliveryQueueRef.current = deliveryQueueRef.current.then(async () => {
-      const result = await requestExtension('send-to-game', { tabId: Number(targetTabId), code: data.value })
+      const result = await requestExtension('send-to-game', { tabId: Number(targetTabId), code: data.value, autoStart: true })
       setExtensionStatus(result.ok
         ? (result.status === 'id-filled' ? '指定タブのID入力欄にセットしました' : '指定タブをID入力画面へ移動しています')
         : `IDを指定タブへ送れませんでした: ${result.reason || '不明な理由'}`)
